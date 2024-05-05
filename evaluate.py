@@ -111,7 +111,17 @@ def compute_similarity_transform(S1, S2):
         var1 = np.sum(X1 ** 2)
 
         # 3. The outer product of X1 and X2.
+        # print(X1.shape)
+        # print(X2.shape)
+        # X1 = X1.reshape(3,-1)
+        # X2 = X2.reshape(3,-1)
+        # K = X1.dot(X2.T)
+        # print('shape of K ', K.shape)
+        # # K = X1.dot(X2)
+
         K = X1.dot(X2.T)
+        
+
 
         # 4. Solution that Maximizes trace(R'K) is R=U*V', where U, V are
         # singular vectors of K.
@@ -170,7 +180,16 @@ def compute_errors(preds3d, gt3ds):
 
     proc_rot = []
 
+
+    gt3ds = np.squeeze(gt3ds)
+    preds3d = np.squeeze(preds3d)
+    # print(gt3ds.shape)
+
+
     for i, (gt3d, pred3d) in enumerate(zip(gt3ds, preds3d)):
+
+        print(gt3d.shape, pred3d.shape)
+
         # gt3d = gt3d.reshape(-1, 3)
         # Root align.
         gt3d = align_by_root(gt3d)
@@ -181,15 +200,21 @@ def compute_errors(preds3d, gt3ds):
         errors.append(np.mean(joint_error))
 
         # Joint errors for PCK Calculation
-        joint_error_maj = joint_error[SMPL_MAJOR_JOINTS]
-        errors_pck.append(joint_error_maj)
+        # joint_error_maj = joint_error[SMPL_MAJOR_JOINTS]
+        # errors_pck.append(joint_error_maj)
+        errors_pck.append(0)
+
 
         # Compute MPJPE_PA and also store similiarity matrices to apply them later to rotation matrices for MPJAE_PA
-        pred3d_sym, R = compute_similarity_transform(pred3d, gt3d)
-        pa_error = np.sqrt(np.sum((gt3d - pred3d_sym) ** 2, axis=1))
-        errors_pa.append(np.mean(pa_error))
+        # pred3d_sym, R = compute_similarity_transform(pred3d, gt3d)
+        # pa_error = np.sqrt(np.sum((gt3d - pred3d_sym) ** 2, axis=1))
+        # errors_pa.append(np.mean(pa_error))
+        errors_pa.append(0)
 
-        proc_rot.append(R)
+
+        # proc_rot.append(R)
+        proc_rot.append(0)
+
 
     return np.mean(np.array(errors)), np.mean(np.array(errors_pa)), \
            np.stack(errors_pck, 0), np.stack(proc_rot, 0)
@@ -385,8 +410,49 @@ def get_paths(submit_dir, truth_dir):
         fnames_gt = fnames_gt + fnames_gt_temp
         fnames_pred = fnames_pred + fnames_pred_temp
 
+   
+
     assert len(fnames_gt) == len(fnames_pred)
     return sorted(fnames_gt), sorted(fnames_pred)
+
+
+def get_smpl_data(gt_directory, pred_directory):
+    
+    fnames_gt = []
+    fnames_pred = []
+
+    fnames_gt_temp = sorted(glob.glob(os.path.join(gt_directory, "") + "*.pkl"))
+    fnames_pred_temp = sorted(glob.glob(os.path.join(pred_directory, "") + "*.pkl"))
+    fnames_gt = fnames_gt + fnames_gt_temp
+    fnames_pred = fnames_pred + fnames_pred_temp
+
+    gt_dict = {"pose":[], "betas":[], "orientation":[]}
+    pred_dict = {"pose":[], "betas":[], "orientation":[]}
+
+    for gt in fnames_gt:
+        out = pkl.load(open(gt, "rb"))
+        gt_dict["pose"].append(out["body_pose"].detach().cpu().numpy())
+        gt_dict["orientation"].append(out["global_orient"].detach().cpu().numpy())
+        gt_dict["betas"].append(out["betas"].detach().cpu().numpy())
+
+    for pred in fnames_pred:
+        out = pkl.load(open(pred, "rb"))
+        pred_dict["pose"].append(out["body_pose"].detach().cpu().numpy())
+        pred_dict["orientation"].append(out["global_orient"].detach().cpu().numpy())
+        pred_dict["betas"].append(out["betas"].detach().cpu().numpy())
+    
+    # for key, value in gt_dict.items():
+    #     gt_dict[key] = value.cpu().numpy()
+
+    # for key, value in pred_dict.items():
+    #     pred_dict[key] = value.cpu().numpy()
+
+    # print(np.array(pred_dict['pose']).shape)
+    # gt_dict['pose'] = np.random.randn(10, 24, 3)
+    # pred_dict['pose'] = gt_dict['pose']
+
+    return np.array(gt_dict['pose']), np.array(gt_dict['betas']), np.array(gt_dict['orientation']), np.array(pred_dict['pose']), np.array(pred_dict['betas']), np.array(pred_dict['orientation'])
+
 
 
 def main(submit_dir, truth_dir, output_filename):
@@ -396,46 +462,54 @@ def main(submit_dir, truth_dir, output_filename):
     :return output_filename: The location of the output txt file
     """
 
-    # Get all the GT and submission paths in paired list form
-    fnames_gt, fnames_pred = get_paths(submit_dir, truth_dir)
+    # # Get all the GT and submission paths in paired list form
+    # fnames_gt, fnames_pred = get_paths(submit_dir, truth_dir)
 
-    # Get all the ground-truth and submission joint positions
-    # Get all the ground-truth and submission Global rotation matrices
-    jp_pred, jp_gt, mats_pred, mats_gt = get_data(fnames_gt, fnames_pred, truth_dir)
+    # # Get all the ground-truth and submission joint positions
+    # # Get all the ground-truth and submission Global rotation matrices
+    # jp_pred, jp_gt, mats_pred, mats_gt = get_data(fnames_gt, fnames_pred, truth_dir)
+
+    # # Check if the predicted and GT joints have the same number
+    # assert jp_pred.shape == jp_gt.shape
+    # assert mats_pred.shape[0] == mats_gt.shape[0]
+
+    # Read SMPL params from the hmr generated pickle files
+    gt_pose, gt_beta, gt_orient, pred_pose, pred_beta, pred_orient = get_smpl_data(truth_dir, submit_dir)
 
     # Check if the predicted and GT joints have the same number
-    assert jp_pred.shape == jp_gt.shape
-    assert mats_pred.shape[0] == mats_gt.shape[0]
+    assert gt_beta.shape == pred_beta.shape
+    assert gt_pose.shape == pred_pose.shape
+    assert gt_orient.shape == pred_orient.shape
 
     # If there are submitted joint predictions
-    if not jp_pred.shape == (0,):
+    if not pred_pose.shape == (0,):
 
         # Joint errors and procrustes matrices
-        MPJPE_final, MPJPE_PA_final, errors_pck, mat_procs = compute_errors(jp_pred * 1000., jp_gt * 1000.)
+        MPJPE_final, MPJPE_PA_final, errors_pck, mat_procs = compute_errors(pred_pose * 1000., gt_pose * 1000.)
 
-        # PCK value
-        pck_final = compute_pck(errors_pck, PCK_THRESH) * 100.
+        # # PCK value
+        # pck_final = compute_pck(errors_pck, PCK_THRESH) * 100.
 
-        # AUC value
-        auc_range = np.arange(AUC_MIN, AUC_MAX)
-        pck_aucs = []
-        for pck_thresh_ in auc_range:
-            err_pck_tem = compute_pck(errors_pck, pck_thresh_)
-            pck_aucs.append(err_pck_tem)
+        # # AUC value
+        # auc_range = np.arange(AUC_MIN, AUC_MAX)
+        # pck_aucs = []
+        # for pck_thresh_ in auc_range:
+        #     err_pck_tem = compute_pck(errors_pck, pck_thresh_)
+        #     pck_aucs.append(err_pck_tem)
 
-        auc_final = compute_auc(auc_range / auc_range.max(), pck_aucs)
+        # auc_final = compute_auc(auc_range / auc_range.max(), pck_aucs)
 
-        # If orientation are submitted, compute orientation errors
-        if not (mats_pred.shape == (0,)):
-            # Apply procrustus rotation to the global rotation matrices
-            mats_procs_exp = np.expand_dims(mat_procs, 1)
-            mats_procs_exp = np.tile(mats_procs_exp, (1, len(SMPL_OR_JOINTS), 1, 1))
-            mats_pred_prc = np.matmul(mats_procs_exp, mats_pred)
+        # # If orientation are submitted, compute orientation errors
+        # if not (pred_orient.shape == (0,)):
+        #     # Apply procrustus rotation to the global rotation matrices
+        #     mats_procs_exp = np.expand_dims(mat_procs, 1)
+        #     mats_procs_exp = np.tile(mats_procs_exp, (1, len(SMPL_OR_JOINTS), 1, 1))
+        #     mats_pred_prc = np.matmul(mats_procs_exp, pred_orient)
 
-            # Compute differences between the predicted matrices after procrustes and GT matrices
-            error_rot_procruster = np.degrees(joint_angle_error(mats_pred_prc, mats_gt))
-        else:
-            error_rot_procruster = np.inf
+        #     # Compute differences between the predicted matrices after procrustes and GT matrices
+        #     error_rot_procruster = np.degrees(joint_angle_error(mats_pred_prc, gt_orient))
+        # else:
+        #     error_rot_procruster = np.inf
     else:
         MPJPE_final = np.inf
         MPJPE_PA_final = np.inf
@@ -445,20 +519,20 @@ def main(submit_dir, truth_dir, output_filename):
 
         error_rot_procruster = np.inf
 
-    # If only orientation are provided, only compute MPJAE
-    # MPJAE_PA requires procrustes analysis which requires joint positions to be submitted as well
-    if not (mats_pred.shape == (0,)):
-        error_rot = np.degrees(joint_angle_error(mats_pred, mats_gt))
-    else:
-        error_rot = np.inf
+    # # If only orientation are provided, only compute MPJAE
+    # # MPJAE_PA requires procrustes analysis which requires joint positions to be submitted as well
+    # if not (pred_orient.shape == (0,)):
+    #     error_rot = np.degrees(joint_angle_error(pred_orient, gt_orient))
+    # else:
+    #     error_rot = np.inf
 
     errs = {
         'MPJPE': MPJPE_final,
-        'MPJPE_PA': MPJPE_PA_final,
-        'PCK': pck_final,
-        'AUC': auc_final,
-        'MPJAE': error_rot,
-        'MPJAE_PA': error_rot_procruster,
+        # 'MPJPE_PA': MPJPE_PA_final,
+        # 'PCK': pck_final,
+        # 'AUC': auc_final,
+        # 'MPJAE': error_rot,
+        # 'MPJAE_PA': error_rot_procruster,
     }
 
     str = ''
